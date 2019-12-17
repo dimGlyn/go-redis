@@ -24,13 +24,17 @@ type shortURL struct {
 	Created      string `json:"created"`
 	LastHit      string `json:"lastHit"`
 }
-
+type usedCodes struct {
+	Type string        `json:"type"`
+	Data []interface{} `json:"value"`
+}
 type shortUrlsData struct {
 	Type string   `json:"type"`
 	Data shortURL `json:"value"`
 }
 
 type jsonData map[string]shortUrlsData
+type usedCodesJSONData map[string]usedCodes
 
 type campaign struct {
 	campaignID, marketID string
@@ -38,6 +42,9 @@ type campaign struct {
 
 var campaigns []campaign
 var data []jsonData
+var usedCodesData usedCodesJSONData
+
+var logFile *os.File
 
 func init() {
 	client1 = redis.NewClient(&redis.Options{
@@ -59,7 +66,19 @@ func init() {
 	})
 
 	parseCampaignCSV("campaignMarketAssign.csv")
-	parseJSONshortURLs("dump.json")
+	fmt.Println("Parsed campaign file")
+
+	parseshortURLsJSON("dump.json")
+	fmt.Println("Parsed shortURL file")
+
+	parseUsedCodesJSON("usedCodes.json")
+	fmt.Println("Parsed shortURL file")
+	var err error
+	logFile, err = os.Create("log.txt")
+	if err != nil {
+		logFile.WriteString("ERROR " + err.Error() + "\n")
+		return
+	}
 }
 
 func parseCampaignCSV(filepath string) error {
@@ -84,11 +103,22 @@ func parseCampaignCSV(filepath string) error {
 	return nil
 }
 
-func parseJSONshortURLs(filepath string) error {
+func parseshortURLsJSON(filepath string) error {
 	file, _ := ioutil.ReadFile(filepath)
 
 	_ = json.Unmarshal([]byte(file), &data)
 
+	return nil
+}
+
+func parseUsedCodesJSON(filepath string) error {
+	file, _ := ioutil.ReadFile(filepath)
+
+	err := json.Unmarshal([]byte(file), &usedCodesData)
+
+	if err != nil {
+		logFile.WriteString("ERROR " + err.Error() + "\n")
+	}
 	return nil
 }
 
@@ -97,6 +127,11 @@ func main() {
 		fmt.Printf("proccess chunk %d\n", i)
 		proccessChunk(chunk)
 	}
+	for _, v := range usedCodesData {
+		fmt.Println("Insert usedCodes")
+		insertUsedCodesToRedis(v)
+	}
+	logFile.Close()
 }
 
 func proccessChunk(chunk jsonData) {
@@ -104,11 +139,11 @@ func proccessChunk(chunk jsonData) {
 		shorturl := chunk[key]
 		targeturl := shorturl.Data.TargetURL
 		if strings.Contains(targeturl, "/ca/0/") {
-			handleOptinURL(shorturl)
+			go handleOptinURL(shorturl)
 		} else if strings.Contains(targeturl, "/ca/") {
-			handleCampaignURL(shorturl)
+			go handleCampaignURL(shorturl)
 		} else {
-			fmt.Println(targeturl)
+			logFile.WriteString("Offer url" + targeturl + "\n")
 		}
 	}
 }
@@ -124,16 +159,16 @@ func handleCampaignURL(shorturl shortUrlsData) {
 	}
 	marketID, err := getMarket(campaignID)
 	if err != nil {
-		fmt.Println(err, shorturl)
+		logFile.WriteString("ERROR " + err.Error() + "\n" + shorturl.Data.ShortURLCode + "\n")
 	}
 
 	client, err := mapTenant(marketID)
 	if err != nil {
-		fmt.Println(err.Error(), shorturl)
+		logFile.WriteString("ERROR " + err.Error() + "\n" + shorturl.Data.ShortURLCode + "\n")
 		return
 	}
 
-	insertToRedis(shorturl, client)
+	insertShortCodeToRedis(shorturl, client)
 }
 
 func handleOptinURL(shorturl shortUrlsData) {
@@ -143,7 +178,7 @@ func handleOptinURL(shorturl shortUrlsData) {
 
 	client, err := mapTenant(marketID)
 	if err != nil {
-		fmt.Println(err.Error(), shorturl)
+		logFile.WriteString("ERROR " + err.Error() + "\n" + shorturl.Data.ShortURLCode + "\n")
 		return
 	}
 
@@ -151,7 +186,7 @@ func handleOptinURL(shorturl shortUrlsData) {
 
 	shorturl.Data.TargetURL = strings.Join(arr, "/")
 
-	insertToRedis(shorturl, client)
+	insertShortCodeToRedis(shorturl, client)
 }
 
 func getMarket(campaignID string) (string, error) {
@@ -160,7 +195,7 @@ func getMarket(campaignID string) (string, error) {
 			return camp.marketID, nil
 		}
 	}
-	fmt.Println(campaignID)
+	logFile.WriteString("ERROR " + "campaignID " + campaignID + "\n")
 	return "nil", errors.New("Invalid campaignID")
 }
 
@@ -177,7 +212,7 @@ func mapTenant(marketID string) (*redis.Client, error) {
 	return nil, errors.New("Tenant not found")
 }
 
-func insertToRedis(shorturl shortUrlsData, client *redis.Client) error {
+func insertShortCodeToRedis(shorturl shortUrlsData, client *redis.Client) error {
 	key := strings.Join([]string{"joi", "shortURLCodes", shorturl.Data.ShortURLCode}, ":")
 	value := make(map[string]interface{})
 	value["hits"] = shorturl.Data.Hits
@@ -187,5 +222,20 @@ func insertToRedis(shorturl shortUrlsData, client *redis.Client) error {
 	value["lastHit"] = shorturl.Data.LastHit
 
 	client.HMSet(key, value)
+	return nil
+}
+
+func insertUsedCodesToRedis(usedcodes usedCodes) error {
+	key := "joi:shortURLCodes:usedCodes"
+
+	strings := []string{}
+
+	for _, v := range usedcodes.Data {
+		strings = append(strings, v.(string))
+	}
+
+	for _, client := range []*redis.Client{client1, client2, client3} {
+		client.SAdd(key, strings)
+	}
 	return nil
 }
