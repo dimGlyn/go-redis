@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/go-redis/redis/v7"
@@ -63,9 +63,6 @@ func init() {
 }
 
 func main() {
-	pong, err := client1.Ping().Result()
-	fmt.Println(pong, err)
-
 	for i, chunk := range data {
 		fmt.Printf("proccess chunk %d\n", i)
 		proccessChunk(chunk)
@@ -108,39 +105,43 @@ func getMarket(campaignID string) (string, error) {
 			return camp.marketID, nil
 		}
 	}
+	fmt.Println(campaignID)
 	return "nil", errors.New("Invalid campaignID")
 }
 
 func proccessChunk(chunk jsonData) {
-	fmt.Println(chunk["joi:shortURLCodes:DKJPeiXo"])
-	shorturl := chunk["joi:shortURLCodes:DKJPeiXo"]
-	targeturl := shorturl.Data.TargetURL
 
-	if strings.Contains(targeturl, "/ca/0/") {
-		handleOptinURL(shorturl)
-	} else if strings.Contains(targeturl, "/ca/") {
-		handleCampaignURL(shorturl)
-	} else {
-		fmt.Println(targeturl)
+	for key, _ := range chunk {
+		shorturl := chunk[key]
+		targeturl := shorturl.Data.TargetURL
+		if strings.Contains(targeturl, "/ca/0/") {
+			handleOptinURL(shorturl)
+		} else if strings.Contains(targeturl, "/ca/") {
+			handleCampaignURL(shorturl)
+		} else {
+			fmt.Println(targeturl)
+		}
 	}
-
-	// for k, value := range chunk {
-	// 	fmt.Println("joi:shortURLCodes:dq79oUVt")
-	// }
 }
 
 func handleCampaignURL(shorturl shortUrlsData) {
 	arr := strings.Split(shorturl.Data.TargetURL, "/")
 
 	campaignID := arr[4]
+
+	i, err := strconv.Atoi(campaignID)
+	if i > 163 {
+		return
+	}
 	marketID, err := getMarket(campaignID)
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println(err, shorturl)
 	}
 
 	client, err := mapTenant(marketID)
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println(err.Error(), shorturl)
+		return
 	}
 
 	insertToRedis(shorturl, client)
@@ -153,7 +154,8 @@ func handleOptinURL(shorturl shortUrlsData) {
 
 	client, err := mapTenant(marketID)
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println(err.Error(), shorturl)
+		return
 	}
 
 	arr[6] = "3"
@@ -177,7 +179,14 @@ func mapTenant(marketID string) (*redis.Client, error) {
 }
 
 func insertToRedis(shorturl shortUrlsData, client *redis.Client) error {
-	fmt.Println(shorturl)
-	fmt.Println(client)
+	key := strings.Join([]string{"joi", "shortURLCodes", shorturl.Data.ShortURLCode}, ":")
+	value := make(map[string]interface{})
+	value["hits"] = shorturl.Data.Hits
+	value["shortURLCode"] = shorturl.Data.ShortURLCode
+	value["targetURL"] = shorturl.Data.TargetURL
+	value["created"] = shorturl.Data.Created
+	value["lastHit"] = shorturl.Data.LastHit
+
+	client.HMSet(key, value)
 	return nil
 }
