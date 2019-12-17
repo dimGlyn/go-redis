@@ -62,13 +62,6 @@ func init() {
 	parseJSONshortURLs("dump.json")
 }
 
-func main() {
-	for i, chunk := range data {
-		fmt.Printf("proccess chunk %d\n", i)
-		proccessChunk(chunk)
-	}
-}
-
 func parseCampaignCSV(filepath string) error {
 	f, err := os.Open(filepath)
 	if err != nil {
@@ -99,19 +92,15 @@ func parseJSONshortURLs(filepath string) error {
 	return nil
 }
 
-func getMarket(campaignID string) (string, error) {
-	for _, camp := range campaigns {
-		if camp.campaignID == campaignID {
-			return camp.marketID, nil
-		}
+func main() {
+	for i, chunk := range data {
+		fmt.Printf("proccess chunk %d\n", i)
+		proccessChunk(chunk)
 	}
-	fmt.Println(campaignID)
-	return "nil", errors.New("Invalid campaignID")
 }
 
 func proccessChunk(chunk jsonData) {
-
-	for key, _ := range chunk {
+	for key := range chunk {
 		shorturl := chunk[key]
 		targeturl := shorturl.Data.TargetURL
 		if strings.Contains(targeturl, "/ca/0/") {
@@ -163,6 +152,16 @@ func handleOptinURL(shorturl shortUrlsData) {
 	shorturl.Data.TargetURL = strings.Join(arr, "/")
 
 	insertToRedis(shorturl, client)
+}
+
+func getMarket(campaignID string) (string, error) {
+	for _, camp := range campaigns {
+		if camp.campaignID == campaignID {
+			return camp.marketID, nil
+		}
+	}
+	fmt.Println(campaignID)
+	return "nil", errors.New("Invalid campaignID")
 }
 
 func mapTenant(marketID string) (*redis.Client, error) {
