@@ -6,15 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"strings"
 
 	"github.com/go-redis/redis/v7"
 )
 
-var clientWallaces *redis.Client
-var clientEndeavors *redis.Client
-var clientAngler *redis.Client
+var client1 *redis.Client
+var client2 *redis.Client
+var client3 *redis.Client
 
 type shortURL struct {
 	Hits         string `json:"hits"`
@@ -26,7 +27,7 @@ type shortURL struct {
 
 type shortUrlsData struct {
 	Type string   `json:"type"`
-	data shortURL `json:"value"`
+	Data shortURL `json:"value"`
 }
 
 type jsonData map[string]shortUrlsData
@@ -39,10 +40,22 @@ var campaigns []campaign
 var data []jsonData
 
 func init() {
-	clientWallaces = redis.NewClient(&redis.Options{
+	client1 = redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
 		Password: "",
-		DB:       1,
+		DB:       2,
+	})
+
+	client2 = redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       3,
+	})
+
+	client3 = redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       4,
 	})
 
 	parseCampaignCSV("campaignMarketAssign.csv")
@@ -50,7 +63,7 @@ func init() {
 }
 
 func main() {
-	pong, err := clientWallaces.Ping().Result()
+	pong, err := client1.Ping().Result()
 	fmt.Println(pong, err)
 
 	for i, chunk := range data {
@@ -99,14 +112,16 @@ func getMarket(campaignID string) (string, error) {
 }
 
 func proccessChunk(chunk jsonData) {
-	fmt.Println(chunk["joi:shortURLCodes:dq79oUVt"])
-	shorturl := chunk["joi:shortURLCodes:dq79oUVt"]
-	targeturl := shorturl.data.TargetURL
+	fmt.Println(chunk["joi:shortURLCodes:DKJPeiXo"])
+	shorturl := chunk["joi:shortURLCodes:DKJPeiXo"]
+	targeturl := shorturl.Data.TargetURL
 
-	if strings.Contains(targeturl, "/ca/0") {
-		handleOptinUrl(shorturl)
+	if strings.Contains(targeturl, "/ca/0/") {
+		handleOptinURL(shorturl)
+	} else if strings.Contains(targeturl, "/ca/") {
+		handleCampaignURL(shorturl)
 	} else {
-		handleCampaignUrl(shorturl)
+		fmt.Println(targeturl)
 	}
 
 	// for k, value := range chunk {
@@ -114,10 +129,55 @@ func proccessChunk(chunk jsonData) {
 	// }
 }
 
-func handleCampaignUrl(shorturl shortUrlsData) {
+func handleCampaignURL(shorturl shortUrlsData) {
+	arr := strings.Split(shorturl.Data.TargetURL, "/")
 
+	campaignID := arr[4]
+	marketID, err := getMarket(campaignID)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	client, err := mapTenant(marketID)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	insertToRedis(shorturl, client)
 }
 
-func handleOptinUrl(shorturl shortUrlsData) {
+func handleOptinURL(shorturl shortUrlsData) {
+	arr := strings.Split(shorturl.Data.TargetURL, "/")
 
+	marketID := arr[6]
+
+	client, err := mapTenant(marketID)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	arr[6] = "3"
+
+	shorturl.Data.TargetURL = strings.Join(arr, "/")
+
+	insertToRedis(shorturl, client)
+}
+
+func mapTenant(marketID string) (*redis.Client, error) {
+
+	switch marketID {
+	case "1":
+		return client1, nil
+	case "6":
+		return client3, nil
+	case "8":
+		return client2, nil
+	}
+	return nil, errors.New("Tenant not found")
+}
+
+func insertToRedis(shorturl shortUrlsData, client *redis.Client) error {
+	fmt.Println(shorturl)
+	fmt.Println(client)
+	return nil
 }
