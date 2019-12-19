@@ -93,7 +93,7 @@ func parseCampaignCSV(filepath string) error {
 	records, err := r.ReadAll()
 	campaigns = []campaign{}
 
-	for _, record := range records[1:] {
+	for _, record := range records {
 		campaigns = append(campaigns, campaign{
 			campaignID: record[0],
 			marketID:   record[1],

@@ -1,5 +1,7 @@
 campaignMarketAssign.csv
 test.json
+usedCodes.json
 dump.json
 main.exe
+go-redis.exe
 log.txt
