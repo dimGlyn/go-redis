@@ -43,6 +43,7 @@ type campaign struct {
 var campaigns []campaign
 var data []jsonData
 var usedCodesData usedCodesJSONData
+var maxCampaign int
 
 var logFile *os.File
 
@@ -100,7 +101,22 @@ func parseCampaignCSV(filepath string) error {
 		})
 	}
 
+	maxCampaign = getMaxCampaign(campaigns)
+
+	fmt.Println(maxCampaign)
+
 	return nil
+}
+
+func getMaxCampaign(campaigns []campaign) (max int) {
+	max, _ = strconv.Atoi(campaigns[0].campaignID)
+	for _, c := range campaigns[1:] {
+		cid, _ := strconv.Atoi(c.campaignID)
+		if cid > max {
+			max = cid
+		}
+	}
+	return
 }
 
 func parseshortURLsJSON(filepath string) error {
@@ -154,7 +170,7 @@ func handleCampaignURL(shorturl shortUrlsData) {
 	campaignID := arr[4]
 
 	i, err := strconv.Atoi(campaignID)
-	if i > 163 {
+	if i > maxCampaign {
 		return
 	}
 	marketID, err := getMarket(campaignID)
