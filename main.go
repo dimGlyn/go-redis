@@ -205,9 +205,9 @@ func mapTenant(marketID string) (*redis.Client, error) {
 	case "1":
 		return client1, nil
 	case "6":
-		return client3, nil
-	case "8":
 		return client2, nil
+	case "8":
+		return client3, nil
 	}
 	return nil, errors.New("Tenant not found")
 }
